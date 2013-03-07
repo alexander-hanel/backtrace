@@ -7,7 +7,8 @@ import sys
 Name: 
     backtrace.py
  Version: 
-    0.1
+    0.2 
+        * fixed logic in regards to parsing strings in function questionBackItUp
  Author
     alexander<dot>hanel<at>gmail<dot>com
 
@@ -341,7 +342,8 @@ class Backtrace():
         argNum = None
         address, dism = lastRef
         # get value, assuming mov* and lea, check backtrace() for the logic
-        dism = dism[:dism.find(';')-1] # used to strip out comments
+        if ';' in dism:
+            dism = dism[:dism.find(';')-1] # used to strip out comments
         value = dism.split()[-1]
         var = self.strip(value)
         args = self.getStackArgs(self.getStack(address))

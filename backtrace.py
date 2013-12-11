@@ -2,13 +2,20 @@ from idaapi import *
 import idautils
 import idc
 import sys
+import inspect
 
 '''
 Name: 
     backtrace.py
  Version: 
     0.2 
-        * fixed logic in regards to parsing strings in function questionBackItUp
+        *   fixed logic in regards to parsing strings in function questionBackItUp
+    0.3 *   Added the functionality to trace all references to a register. The previous
+            version only monitored MOVs. It can now track most general purpose
+            instuctions. It does not compare instruction that contain a control flow
+            such as cmp, CMOVE, etc. It also does not track the usage of registers
+            pushed onto the stack. 
+            
  Author
     alexander<dot>hanel<at>gmail<dot>com
 
@@ -222,17 +229,23 @@ Functions:
 TO DO List
 	1. Forward Trace
 	2. Cross-refernce check
-	3. Clean up the output. 
+	3. Clean up the output.
+	4. Trace usage of registers and their sub-register: eax contains ax, ah, al 
 '''
 
 class Backtrace():
     def __init__(self):
-            self.AlexCanNotDrawAStack = True
-            self.registers = ['eax', 'ebx', 'ecx', 'edx', 'esi', 'edi', 'esp', 'ebp']
-            self.verbose = False
-            self.refsLog = []
-            self.maxDepth = 25
-            
+        self.AlexCanNotDrawAStack = True
+        self.registers = ['eax', 'ebx', 'ecx', 'edx', 'esi', 'edi', 'esp', 'ebp']
+        self.verbose = True
+        self.refsLog = []
+        self.maxDepth = 25
+        self.nonMov = True
+        self.nonReg = ''
+        
+    def debug(self):
+        print inspect.currentframe().f_back.f_lineno
+        
     def retApiRef(self, apiname):
         'get all xrefs to an api by name'
         apiAddrList = []
@@ -297,14 +310,55 @@ class Backtrace():
             for ref in self.refsLog:
                  print '\t', hex(ref[0]), ref[1]
             print
-        self.refsLog = []
+            
+    def clearLog(self):
+         self.refsLog = []
+
+    def GPRPurpose(self, register):
+        if register in ['al', 'ah', 'ax', 'eax', 'rax']:
+            return 'accumulator' 
+        if register in ['bl', 'bh', 'bx', 'ebx', 'rbx']:
+            return 'base'
+        if register in ['cl', 'ch', 'cx', 'ecx', 'rcx']:
+            return 'counter'
+        if register in ['dl', 'dh', 'dx', 'edx', 'rdx']:
+            return 'extend'
+        if register in ['si', 'esi', 'rsi']:
+            return 'source'
+        if register in ['di', 'edi', 'rdi']:
+            return 'dest'
+        if register in ['sp', 'esp', 'rbp']:
+            return 'stack'
+        if register in ['bp', 'ebp', 'rbp']:
+            return 'base'
+        if register in ['ip', 'eip', 'rip']:
+            return 'instru' 
+        return None
+
     
+    def inDism(self, dism, pur):
+        s = dism.replace(',','').split()
+        # remove mnemonic
+        if len(s) > 1:
+            del s[0]
+        for op in s:
+            results = self.GPRPurpose(op)
+            if results == None:
+                return False
+            elif pur == results:
+                return True
+            
+        return False
+            
     def backtrace(self, address, operand):
         'find the initial assignment'
+        # Will need to bool to track for more than one function, child, parent...
+        self.clearLog() # !!! TEST ME. How will this effect other code!!!!
         lastRef = (address, GetDisasm(address))
         self.refsLog.append(lastRef)
         funcStart = GetFunctionAttr(address, FUNCATTR_START)
         var = GetOpnd(address, operand)
+        purpose = self.GPRPurpose(var)
         currentAddress = PrevHead(address)
         dism = GetDisasm(currentAddress)
         while(currentAddress >= funcStart):
@@ -313,29 +367,165 @@ class Backtrace():
                 ptreg = '['+reg+']'
                 if var == ptreg:
                     var = reg
+                    purpose = self.GPRPurpose(var)
             if var.isdigit() == True:
                 tmp = NextHead(currentAddress)
                 lastRef = (tmp, GetDisasm(tmp))
                 self.refsLog.append(lastRef)
                 self.printlog()
-                return lastRef
+                return 
             if 'call' in dism and var == 'eax':
                 lastRef = (currentAddress, GetDisasm(currentAddress))
                 self.refsLog.append(lastRef)
                 self.printlog()
-                return lastRef
-            if var in dism:
-                #lastRef = (currentAddress, GetDisasm(currentAddress))
+                return
+            if var in dism or self.inDism(dism,purpose):
                 mnem = GetMnem(currentAddress)
-                if 'mov' in mnem or 'lea' in mnem:
-                    if GetOpnd(currentAddress,0) == var:
+                '''
+                Data Transfer -
+                Instrustion     Checked         Description
+                MOV             X		Move data between general-purpose registers; 
+                MOVSX           X		Move and sign extend
+                MOVZX 	        X		Move and zero extend
+                XCHG 	        X		Exchange
+                BSWAP 		X		Byte swap
+                XADD 		X		Exchange and add
+
+                Stack Based - 
+                PUSH 				Push onto stack
+                POP 				Pop off of stack
+                PUSHA/PUSHAD 		        Push general-purpose registers onto stack
+                POPA/POPAD 			Pop general-purpose registers from stack
+
+                Convert - 
+                CWD/CDQ 			Convert word to doubleword/Convert doubleword to quadword
+                CBW/CWDE 			Convert byte to word/Convert word to doubleword in EAX register
+
+                Compare - 
+                CMPXCHG 			Compare and exchange
+                CMPXCHG8B 			Compare and exchange 8 bytes
+
+                Conditional - 
+                CMOVE/CMOVZ 		        Conditional move if equal/Conditional move if zero
+                CMOVNE/CMOVNZ 		        Conditional move if not equal/Conditional move if not zero
+                CMOVA/CMOVNBE 		        Conditional move if above/Conditional move if not below or equal
+                CMOVAE/CMOVNB 		        Conditional move if above or equal/Conditional move if not below
+                CMOVB/CMOVNAE 		        Conditional move if below/Conditional move if not above or equal
+                CMOVBE/CMOVNA 		        Conditional move if below or equal/Conditional move if not above
+                CMOVG/CMOVNLE 		        Conditional move if greater/Conditional move if not less or equal
+                CMOVGE/CMOVNL 		        Conditional move if greater or equal/Conditional move if not less
+                CMOVL/CMOVNGE 		        Conditional move if less/Conditional move if not greater or equal
+                CMOVLE/CMOVNG 		        Conditional move if less orequal/Conditional move if not greater
+                CMOVC 				Conditional move if carry
+                CMOVNC 				Conditional move if not carry
+                CMOVO 				Conditional move if overflow
+                CMOVNO 				Conditional move if not overflow
+                CMOVS 				Conditional move if sign (negative)
+                CMOVNS 				Conditional move ifnot sign (non-negative)
+                CMOVP/CMOVPE 		        Conditional move if parity/Conditional move if parity even
+                CMOVNP/CMOVPO 		        Conditional move if not parity/Conditional move if parity odd 
+                '''
+                if mnem in ['mov', 'movsx', 'movzx','xchg']:
+                    if var in GetOpnd(currentAddress,0) or self.inDism(GetOpnd(currentAddress,0), purpose):
                         var = GetOpnd(currentAddress,1)
+                        purpose = self.GPRPurpose(var)
                         lastRef = (currentAddress, GetDisasm(currentAddress))
                         self.refsLog.append(lastRef)
+                if self.nonMov  == True:
+                    if mnem in ['bswap']:
+                        if var in GetOpnd(currentAddress,0) or self.inDism(GetOpnd(currentAddress,0), purpose):
+                            lastRef = (currentAddress, GetDisasm(currentAddress))
+                            self.refsLog.append(lastRef)
+                    ''' XADD Example
+                        Assembly Code 
+                        .code
+                        main PROC
+                                call Clrscr
+                                mov	eax,10000h		; EAX = 10000h
+                                mov	ebx,40000h		; EBX = 40000h
+                                call	DumpRegs
+                                xadd eax, ebx
+                                call DumpRegs
+                                exit
+                        main ENDP
+
+                      Output - before  
+                      EAX=00010000  EBX=00040000  ECX=00000000  EDX=00401005
+                      ESI=00000000  EDI=00000000  EBP=0018FF94  ESP=0018FF8C
+                      EIP=00401024  EFL=00000212  CF=0  SF=0  ZF=0  OF=0  AF=1  PF=0
+                      Output - after   
+                      EAX=00050000  EBX=00010000  ECX=00000000  EDX=00401005
+                      ESI=00000000  EDI=00000000  EBP=0018FF94  ESP=0018FF8C
+                      EIP=0040102C  EFL=00000206  CF=0  SF=0  ZF=0  OF=0  AF=0  PF=1
+                    '''
+                    if mnem in ['xadd']:
+                        # exchanged/temporary value. Not modified. See example above
+                        if var in GetOpnd(currentAddress,1) or self.inDism(GetOpnd(currentAddress,1), purpose):
+                            var = GetOpnd(currentAddress,0)
+                            purpose = self.GPRPurpose(var)
+                            lastRef = (currentAddress, GetDisasm(currentAddress))
+                            self.refsLog.append(lastRef)
+                        # calculated value. basically add
+                        elif var in GetOpnd(currentAddress,0) or self.inDism(GetOpnd(currentAddress,0), purpose):
+                            lastRef = (currentAddress, GetDisasm(currentAddress))
+                            self.refsLog.append(lastRef) 
+                    # Logical Instructions
+                    if mnem in ['and', 'or', 'xor', 'not']:
+                        if var in GetOpnd(currentAddress,0) or self.inDism(GetOpnd(currentAddress,0), purpose):
+                            lastRef = (currentAddress, GetDisasm(currentAddress))
+                            self.refsLog.append(lastRef)
+                    # Shift and Rotate Instructions
+                    if mnem in ['sar', 'shr', 'sal', 'shl', 'shrd', 'shld', 'ror', 'rol', 'rcr', 'rcl']:
+                        if var in GetOpnd(currentAddress,0) or self.inDism(GetOpnd(currentAddress,0), purpose):
+                            lastRef = (currentAddress, GetDisasm(currentAddress))
+                            self.refsLog.append(lastRef)
+                    # Binary Arithmetic Instructions, dest source based
+                    if mnem in ['add', 'adc', 'sub', 'sbb', 'inc', 'dec', 'neg']:
+                        if var in GetOpnd(currentAddress,0) or self.inDism(GetOpnd(currentAddress,0), purpose):
+                            lastRef = (currentAddress, GetDisasm(currentAddress))
+                            self.refsLog.append(lastRef)
+                    # Binary Arthimetic Instructions - quadword operand
+                    if mnem in ['imul', 'mul', 'idiv', 'div']:
+                        if var in GetOpnd(currentAddress,0) or self.inDism(GetOpnd(currentAddress,0), purpose):
+                            lastRef = (currentAddress, GetDisasm(currentAddress))
+                            self.refsLog.append(lastRef)
+                            
+                    '''
+                    Miscellaneous Instructions
+                    Instrustion     Checked         Description
+                    LEA             X               Load effective address
+                    NOP             n/a             No operation
+                    UD2             n/a             Undefined instruction.
+                     ..                             The instruction is provided to allow software
+                     ..                             to test an invalid opcode exception handler.
+                    XLAT/XLATB      X               Table lookup translation
+                    CPUID           X               Processor identification
+                    MOVBE           n/a             Move data after swapping data bytes.
+                     ..                             Atom processor specific  
+                    '''
+                    if mnem in ['lea']:
+                        if self.inDism(GetOpnd(currentAddress,0), purpose):
+                        #if var in GetOpnd(currentAddress,0): REMOVE
+                            lastRef = (currentAddress, GetDisasm(currentAddress))   
+                            self.refsLog.append(lastRef)
+                    if mnem in ['cpuid']:
+                        if self.inDism(var, 'accumulator') or self.inDism(var, 'counter'):
+                        # if var in ['eax', 'ax', 'ebx', 'bx', 'ecx', 'cx', 'edx', 'dx']:     # 64-BIT-UPDATE-NEEDED REMOVE
+                            lastRef = (currentAddress, GetDisasm(currentAddress))
+                            self.refsLog.append(lastRef)
+                            self.printlog()
+                            return
+                    if mnem in ['xlat', 'xlatb']:
+                        if self.inDism(var, 'accumulator'):
+                        #if var in ['eax', 'ah' 'al']: REMOVE
+                            lastRef = (currentAddress, GetDisasm(currentAddress))
+                            self.refsLog.append(lastRef)
+                            self.printlog()
+                            return 
             currentAddress = PrevHead(currentAddress)
             dism = GetDisasm(currentAddress)
         self.printlog()
-        return lastRef
+        return 
 
     def questionBackItUp(self, lastRef):
         'checks if last ref is an argument'

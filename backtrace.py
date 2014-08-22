@@ -1,6 +1,6 @@
 from idaapi import * 
-import idautils
-import idc
+from idautils import *
+from idc import *
 import sys
 import inspect
 
@@ -242,6 +242,7 @@ class Backtrace():
         self.maxDepth = 25
         self.nonMov = True
         self.nonReg = ''
+        self.tainted = False
         
     def debug(self):
         print inspect.currentframe().f_back.f_lineno
@@ -354,6 +355,7 @@ class Backtrace():
         'find the initial assignment'
         # Will need to bool to track for more than one function, child, parent...
         self.clearLog() # !!! TEST ME. How will this effect other code!!!!
+        self.tainted = False
         lastRef = (address, GetDisasm(address))
         self.refsLog.append(lastRef)
         funcStart = GetFunctionAttr(address, FUNCATTR_START)
@@ -474,6 +476,8 @@ class Backtrace():
                         if var in GetOpnd(currentAddress,0) or self.inDism(GetOpnd(currentAddress,0), purpose):
                             lastRef = (currentAddress, GetDisasm(currentAddress))
                             self.refsLog.append(lastRef)
+                            if mnem in ['xor'] and GetOpnd(currentAddress,0) == GetOpnd(currentAddress,1):
+                                self.tainted = True
                     # Shift and Rotate Instructions
                     if mnem in ['sar', 'shr', 'sal', 'shl', 'shrd', 'shld', 'ror', 'rol', 'rcr', 'rcl']:
                         if var in GetOpnd(currentAddress,0) or self.inDism(GetOpnd(currentAddress,0), purpose):

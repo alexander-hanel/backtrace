@@ -339,7 +339,7 @@ class Backtrace():
     
     def inDism(self, dism, pur):
         s = dism.replace(',','').split()
-        # remove mnemonic
+            # remove mnemonic
         if len(s) > 1:
             del s[0]
         for op in s:

@@ -1,5 +1,15 @@
 """
+Author:
+    Alexander Hanel
+Date:
+    20140814
+Version:
+    .9 - still being testing
+Summary:
+    Examples of using the backtrace libary to rebuild strings
 
+TODO:
+    Completely rebuild the stack and local arguments of a function. 
 
 Notes:
     idaapi.o_phrase # Memory Ref [Base Reg + Index Reg]
@@ -15,9 +25,11 @@ Useful Reads
 import sys, os
 from binascii import unhexlify
 from math import log
-sys.path.append(r"C:\Users\xor\repo\backtrace")
-#sys.path.append(os.path.realpath(__file__ + "/../../"))
+sys.path.append(os.path.realpath(__file__ + "/../../"))
 from backtrace import *
+
+def use_frame_size(start):
+    return idc.GetFrameSize(start)
 
 def get_strings(start, end, size):
     b = Backtrace()
@@ -74,7 +86,7 @@ def get_strings(start, end, size):
                     str_buff[index + c ] = ch
         curr_addr = idc.PrevHead(curr_addr)
     
-     if ebp == True:
+    if ebp == True:
         str_buff = str_buff[::-1]
         str_buff.insert(0, '\x00')
     return str_buff

@@ -24,7 +24,7 @@ Useful Reads
 """
 import sys, os
 from binascii import unhexlify
-from math import log
+#from math import log
 sys.path.append(os.path.realpath(__file__ + "/../../"))
 from backtrace import *
 
@@ -68,11 +68,16 @@ def get_strings(start, end, size):
             else:
                 data = idaapi.cmd.Op2.value 
             # read the data
+            """
             if data != 0:
                 size_in_bytes = int(log(data, 256)) + 1
+            """
             # unhexlify(hex(data)[2:)) Hack, didn't want to read the struct docs
             if data:
-                temp = unhexlify(hex(data)[2:])
+                hex_values = hex(data)[2:]
+                if len(hex_values) % 2:
+                    hex_values = "0" + hex_values
+                temp = unhexlify(hex_values)
             else:
                 temp = '\x00'
                 curr_addr = idc.PrevHead(curr_addr)

@@ -2,15 +2,14 @@
 Author:
     Alexander Hanel
 Date:
-    20140814
+    20140831
 Version:
-    .5 - still being testing
+    .3   - still being testing
 Summary:
     Examples of using the backtrace library to rebuild strings
 
 TODO:
-    Completely rebuild the stack and local arguments of a function. 
-
+    How to deal with printing wide char strings
 Notes:
     idaapi.o_phrase # Memory Ref [Base Reg + Index Reg]
 
@@ -106,11 +105,14 @@ def get_strings(start, end, size):
 def format_str(frame_buffer):
     formated = ""
     for index, ch in enumerate(frame_buffer):
-        if ch == "\x00" and frame_buffer[index + 1] != "\x00":
-            formated += " "
+        try:
+            if ch == "\x00" and frame_buffer[index + 1] != "\x00":
+                formated += " "
+        except:
+            pass
         if ch != "\x00":
-            formated += ch
-    return frame_buffer
+            formated += ch  
+    return formated
 
 start = SelStart()
 # SelEnd() returns the address after the selected data.

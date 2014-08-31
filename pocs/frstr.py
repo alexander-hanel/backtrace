@@ -103,11 +103,19 @@ def get_strings(start, end, size):
         str_buff.insert(0, '\x00')
     return str_buff
 
+def format_str(frame_buffer):
+    formated = ""
+    for index, ch in enumerate(frame_buffer):
+        if ch == "\x00" and frame_buffer[index + 1] != "\x00":
+            formated += " "
+        if ch != "\x00":
+            formated += ch
+    return frame_buffer
+
 start = SelStart()
 # SelEnd() returns the address after the selected data.
 # The below code changes the current address to the last selected 
 end = PrevHead(SelEnd())
 frame_size = use_frame_size(start)
-xxx = get_strings(start, end, frame_size)
-yyy =  ''.join(xxx).replace("\x00\x00", " ")
-sys.stdout.write(yyy.replace("  ", ""))
+frame_buffer = get_strings(start, end, frame_size)
+MakeComm(end, format_str(frame_buffer))

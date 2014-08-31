@@ -4,9 +4,9 @@ Author:
 Date:
     20140814
 Version:
-    .9 - still being testing
+    .5 - still being testing
 Summary:
-    Examples of using the backtrace libary to rebuild strings
+    Examples of using the backtrace library to rebuild strings
 
 TODO:
     Completely rebuild the stack and local arguments of a function. 
@@ -22,11 +22,14 @@ Useful Reads
     http://zairon.wordpress.com/2008/02/15/idc-script-and-stack-frame-variables-length/
     
 """
-import sys, os
+import sys, os, logging
 from binascii import unhexlify
 #from math import log
 sys.path.append(os.path.realpath(__file__ + "/../../"))
 from backtrace import *
+
+
+logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
 
 def use_frame_size(start):
     return idc.GetFrameSize(start)
@@ -37,13 +40,16 @@ def get_strings(start, end, size):
     ebp = False
     b.verbose = False
     str_buff = list('\x00' * size)
-    curr_addr = end
-    while curr_addr >= start:
+    curr_addr = start
+    while curr_addr <= end:
         idaapi.decode_insn(curr_addr)
         if idaapi.cmd.itype == idaapi.NN_mov and \
            idaapi.cmd.Op1.type == idaapi.o_displ:
             # get the frame pointer address, used as index
-            if int(idaapi.cmd.Op1.addr) > size:
+            # [?] Can the base pointer or stack pointer be found without
+            # [?] string parsing?
+            if "bp" in idc.GetOpnd(curr_addr,0):
+                # ebp will return a negative number
                 index = (~(int(idaapi.cmd.Op1.addr) - 1) & 0xFFFFFFFF)
                 ebp = True
             else:
@@ -53,44 +59,45 @@ def get_strings(start, end, size):
                 # value needs to be traced back
                 b.backtrace(curr_addr, 1)
                 # tainted means the reg was xor reg, reg
-                # odds are being used to init var. 
-                if b.tainted == False:
+                # odds are being used to init var.
+                if b.tainted != True:
                     last_ref = b.refsLog[-1]
                     idaapi.decode_insn(int(last_ref[0]))
                     data = idaapi.cmd.Op2.value
                 else:
                     # tracked variable has been set to zero by xor reg, reg
-                    curr_addr = idc.PrevHead(curr_addr)
+                    curr_addr = idc.NextHead(curr_addr)
                     continue
             elif idaapi.cmd.Op2.type != idaapi.o_imm:
-                curr_addr = idc.PrevHead(curr_addr)
+                curr_addr = idc.NextHead(curr_addr)
                 continue
             else:
-                data = idaapi.cmd.Op2.value 
-            # read the data
-            """
-            if data != 0:
-                size_in_bytes = int(log(data, 256)) + 1
-            """
-            # unhexlify(hex(data)[2:)) Hack, didn't want to read the struct docs
+                data = idaapi.cmd.Op2.value
             if data:
                 hex_values = hex(data)[2:]
+                if hex_values[-1] == "L":
+                    hex_values = hex_values[:-1]
                 if len(hex_values) % 2:
                     hex_values = "0" + hex_values
                 temp = unhexlify(hex_values)
             else:
                 temp = '\x00'
-                curr_addr = idc.PrevHead(curr_addr)
-                continue                
+                curr_addr = idc.NextHead(curr_addr)
+                continue
+            # GetFrameSize is not always accurate
+            # buffer size will have to be extended manually
             if ebp == True:
+                # reverse the buffer
                 temp = temp[::-1]
                 for c, ch in enumerate(temp):
+                    logging.debug("%s %s" % (index-c , ch))
                     str_buff[index - c ] = ch
             if esp == True:
                 for c, ch in enumerate(temp):
-                    str_buff[index + c ] = ch
-        curr_addr = idc.PrevHead(curr_addr)
-    
+                    print len(temp)
+                    logging.debug("%s %s") % (index-c , ch)
+                    str_buff[index + c] = ch
+        curr_addr = idc.NextHead(curr_addr)
     if ebp == True:
         str_buff = str_buff[::-1]
         str_buff.insert(0, '\x00')
@@ -102,5 +109,5 @@ start = SelStart()
 end = PrevHead(SelEnd())
 frame_size = use_frame_size(start)
 xxx = get_strings(start, end, frame_size)
-yyy =  ''.join(xxx).replace("\x00", " ")
+yyy =  ''.join(xxx).replace("\x00\x00", " ")
 sys.stdout.write(yyy.replace("  ", ""))

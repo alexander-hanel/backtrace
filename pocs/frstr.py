@@ -4,15 +4,18 @@ Author:
 Date:
     20140831
 Version:
-    .3   - still being testing
+    .2   - should be good to go.
 Summary:
     Examples of using the backtrace library to rebuild strings
 
 TODO:
-    How to deal with printing wide char strings
+    * Add better error handling
+    * How to deal with printing wide char strings?
+    * What is the size of the frame buffer if GetFrameSize returns something
+      smaller than the frame/stack index or the IDA does not recognize the function?
+
 Notes:
     idaapi.o_phrase # Memory Ref [Base Reg + Index Reg]
-
     o_phrase   =  idaapi.o_phrase    #  Memory Ref [Base Reg + Index Reg]    phrase
     o_displ    =  idaapi.o_displ     #  Memory Reg [Base Reg + Index Reg + Displacement] phrase+addr
 
@@ -26,7 +29,6 @@ from binascii import unhexlify
 #from math import log
 sys.path.append(os.path.realpath(__file__ + "/../../"))
 from backtrace import *
-
 
 logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
 
@@ -93,13 +95,12 @@ def get_strings(start, end, size):
                     str_buff[index - c ] = ch
             if esp == True:
                 for c, ch in enumerate(temp):
-                    print len(temp)
                     logging.debug("%s %s") % (index-c , ch)
                     str_buff[index + c] = ch
         curr_addr = idc.NextHead(curr_addr)
     if ebp == True:
         str_buff = str_buff[::-1]
-        str_buff.insert(0, '\x00')
+        str_buff.pop()
     return str_buff
 
 def format_str(frame_buffer):
@@ -111,7 +112,7 @@ def format_str(frame_buffer):
         except:
             pass
         if ch != "\x00":
-            formated += ch  
+            formated += ch
     return formated
 
 start = SelStart()

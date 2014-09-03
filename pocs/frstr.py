@@ -148,6 +148,12 @@ class Frame2Buff:
                         except:
                                 print "ERROR: Frame ESP index invalid: at %x" % (curr_addr)
             curr_addr = idc.NextHead(curr_addr)
+        # reverse the buffer to match index
+        if self.ebp == True:
+            self.str_buff = self.str_buff[::-1]
+            self.str_buff.pop()
+
+
 
     def format_buff(self):
         self.formatted_buff = ""

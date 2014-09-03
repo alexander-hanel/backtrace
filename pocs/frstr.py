@@ -31,10 +31,12 @@ from backtrace import *
 
 class Frame2Buff:
     def __init__(self):
-        self.verbose = True
+        self.verbose = False
         self.func_start = idc.SelStart()
         # SelEnd() returns the following selected instruction
         self.func_end = SelEnd()
+        self.esp = False
+        self.ebp = False
         self.comment = True
         self.frame_size = None
         self.bt = None
@@ -63,7 +65,6 @@ class Frame2Buff:
             self.bt.verbose = False
         except ImportError:
             print "ERROR: Could not import Backtrace - aborting"
-        logging.debug('Calling self.populate_buffer()')
         self.func_end = PrevHead(self.func_end)
         self.populate_buffer()
         if self.format:
@@ -73,8 +74,6 @@ class Frame2Buff:
 
     def populate_buffer(self):
         curr_addr = self.func_start
-        self.ebp = False
-        self.esp = False
         self.str_buff = list('\x00' * self.frame_size)
         while curr_addr <= self.func_end:
             index = None
@@ -122,24 +121,32 @@ class Frame2Buff:
                 else:
                     curr_addr = idc.NextHead(curr_addr)
                     continue
-                # try/except added because GetFrameSize is not always a good way to 
-                # estimate the frame buffer size
+                # GetFrameSize is not a reliable buffer size
+                # If so append to buffer if index is less than
+                # 2 * frame size. If more likely an error
+                if self.ebp or self.esp:
+                    cal_index = index + len(temp)
+                    if cal_index > self.frame_size:
+                        if cal_index < (self.frame_size * 2):
+                            for a in range(cal_index - self.frame_size):
+                                self.str_buff.append("\x00")
+                                if self.verbose:
+                                    print "ERROR: Frame size incorrect, appending"
                 if self.ebp:
                     # reverse the buffer
                     temp = temp[::-1]
                     for c, ch in enumerate(temp):
                         try:
-                            self.str_buff[index - c ] = ch
+                            self.str_buff[index - c] = ch
                         except:
                             if self.verbose:
-                                print "ERROR: Frame index invalid: at %x" % (curr_addr)
+                                print "ERROR: Frame EBP index invalid: at %x" % (curr_addr)
                 if self.esp:
                     for c, ch in enumerate(temp):
                         try:
                             self.str_buff[index + c] = ch
                         except:
-                             if self.verbose:
-                                    print "ERROR: Frame index invalid: at %x" % (curr_addr)
+                                print "ERROR: Frame ESP index invalid: at %x" % (curr_addr)
             curr_addr = idc.NextHead(curr_addr)
 
     def format_buff(self):

@@ -22,7 +22,7 @@ Useful Reads
     http://smokedchicken.org/2012/05/ida-rename-local-from-a-script.html
     http://zairon.wordpress.com/2008/02/15/idc-script-and-stack-frame-variables-length/
 """
-import sys, os, logging
+import sys, os, logging, copy
 from binascii import unhexlify
 # Add the parent directory to Python Path
 sys.path.append(os.path.realpath(__file__ + "/../../"))
@@ -151,14 +151,16 @@ class Frame2Buff:
 
     def format_buff(self):
         self.formatted_buff = ""
+        temp_buff = copy.copy(self.str_buff)
+
         if self.ebp == True:
-            self.str_buff = self.str_buff[::-1]
-            self.str_buff.pop()
+            temp_buff = temp_buff[::-1]
+            temp_buff.pop()
 
         if self.str_buff:
-            for index, ch in enumerate(self.str_buff):
+            for index, ch in enumerate(temp_buff):
                 try:
-                    if ch == "\x00" and self.str_buff[index + 1] != "\x00":
+                    if ch == "\x00" and temp_buff[index + 1] != "\x00":
                         self.formatted_buff += " "
                 except:
                     pass
